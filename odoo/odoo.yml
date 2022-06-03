@@ -1,0 +1,139 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+   name: odoo-its
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: db-pvc
+  namespace: odoo-its
+  labels:
+    app: db_odoo
+spec:
+  storageClassName: manual
+  resources:
+    requests:
+      storage: 200Mi
+  accessModes:
+    - ReadWriteOnce
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: db-pv
+  namespace: odoo-its
+  labels:
+    app: db_odoo
+spec:
+  storageClassName: manual
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: /data-pv
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-secret
+  namespace: odoo-its
+  labels:
+    app: db_odoo
+type: Opaque
+data:
+  db-passwrd: b2Rvbwo=
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: db-pod
+  namespace: odoo-its
+  labels:
+    app: db_odoo
+spec:
+  containers:
+  - name: postgres
+    image: 'postgres:10'
+    env:
+      - name: POSTGRES_DB
+        value: postgres
+      - name: POSTGRES_USER
+        value: odoo
+      - name: POSTGRES_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: db-secret
+            key: db-passwrd
+    volumeMounts:
+    - name: db-pvc
+      mountPath: /var/lib/postgresql/data
+  volumes:
+  - name: db-pvc
+    persistentVolumeClaim:
+      claimName: db-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db-service
+  namespace: odoo-its
+  labels:
+    app: db_odoo
+spec:
+  type: ClusterIP
+  ports:
+    - targetPort: 5432
+      port: 5432
+  selector:
+    app: db_odoo
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: odoo-service
+  namespace: odoo-its
+  labels:
+    app: odoo-server
+spec:
+  type: NodePort
+  ports:
+    - port: 8069
+      protocol: TCP
+      targetPort: 8069
+      nodePort: 32020
+  selector:
+    app: odoo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: odoo-deploy
+  namespace: odoo-its
+  labels:
+    app: odoo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: odoo
+  template:
+    metadata:
+      labels:
+        app: odoo
+    spec:
+      containers:
+        - name: odoo
+          image: 'odoo:11'
+          env:
+            - name: HOST
+              value: db-service
+            - name: PASSWORD
+              value: odoo
+            - name: USER
+              value: odoo
+          ports:
+            - name: http
+              containerPort: 8069
